@@ -1,270 +1,164 @@
 import arcade
 import random
-import math
-import os
 
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
-SCREEN_TITLE = "Spaceship Adventures — by Григорий Ф. и Артем М."
-
-SHIP_SPEED = 5
-SHIP_Y = 60
-OBJECT_FALL_SPEED_BASE = 2
-LIVES_START = 3
-HIGHSCORE_FILE = "highscore.txt"
-
-TYPE_TRASH_COMMON = 1
-TYPE_TRASH_VALUABLE = 2
-TYPE_ASTEROID_SMALL = 3
-TYPE_ASTEROID_LARGE = 4
-TYPE_SHIELD = 5
-TYPE_MAGNET = 6
-TYPE_SLOW = 7
+SCREEN_TITLE = "Космическое приключение"
+PLAYER_SPEED = 5
+ASTEROID_SPAWN_INTERVAL = 2.5
 
 
-class FallingObject(arcade.Sprite):
-    def __init__(self, object_type):
-        super().__init__()
-        self.object_type = object_type
-
-        if object_type == TYPE_TRASH_COMMON:
-            texture = arcade.make_soft_square_texture(20, arcade.color.LIME_GREEN)
-            self.points = 10
-        elif object_type == TYPE_TRASH_VALUABLE:
-            texture = arcade.make_soft_square_texture(25, arcade.color.GOLD)
-            self.points = 50
-        elif object_type == TYPE_ASTEROID_SMALL:
-            texture = arcade.make_soft_square_texture(30, arcade.color.DARK_GRAY)
-            self.damage = 1
-        elif object_type == TYPE_ASTEROID_LARGE:
-            texture = arcade.make_soft_square_texture(45, arcade.color.BLACK)
-            self.damage = 2
-        elif object_type == TYPE_SHIELD:
-            texture = arcade.make_soft_square_texture(25, arcade.color.BLUE)
-        elif object_type == TYPE_MAGNET:
-            texture = arcade.make_soft_square_texture(25, arcade.color.RED)
-        elif object_type == TYPE_SLOW:
-            texture = arcade.make_soft_square_texture(25, arcade.color.PURPLE)
-        else:
-            texture = arcade.make_soft_square_texture(20, arcade.color.WHITE)
-
-        self.texture = texture
-        self.center_x = random.randint(20, SCREEN_WIDTH - 20)
-        self.center_y = SCREEN_HEIGHT + 20
-        self.fall_speed = OBJECT_FALL_SPEED_BASE
+class Player(arcade.Sprite):
+    def __init__(self):
+        super().__init__("assets/player_ship.png", scale=0.8)
+        self.center_x = SCREEN_WIDTH // 2
+        self.center_y = 50
 
     def update(self):
-        self.center_y -= self.fall_speed
+        self.center_x += self.change_x
+        if self.left < 0:
+            self.left = 0
+        if self.right > SCREEN_WIDTH:
+            self.right = SCREEN_WIDTH
+
+
+class Asteroid(arcade.Sprite):
+    def __init__(self, size):
+        if size == "large":
+            image = "assets/asteroid_large.png"
+            scale = 0.6
+        else:
+            image = "assets/asteroid_small.png"
+            scale = 0.4
+        super().__init__(image, scale=scale)
+
+        margin = int(self.width // 2)
+        self.center_x = random.randint(margin, SCREEN_WIDTH - margin)
+        self.center_y = SCREEN_HEIGHT + int(self.height // 2)
+        self.change_y = -random.uniform(2, 5)
+
+    def update(self, delta_time=1/60):
+        self.center_y += self.change_y
         if self.top < 0:
             self.remove_from_sprite_lists()
 
 
-class PlayerShip(arcade.Sprite):
+class Trash(arcade.Sprite):
+    def __init__(self):
+        super().__init__("assets/trash_common.png", scale=0.5)
+        margin = int(self.width // 2)
+        self.center_x = random.randint(margin, SCREEN_WIDTH - margin)
+        self.center_y = SCREEN_HEIGHT + int(self.height // 2)
+        self.change_y = -random.uniform(1.5, 3.5)
+
+    def update(self, delta_time=1/60):
+        self.center_y += self.change_y
+        if self.top < 0:
+            self.remove_from_sprite_lists()
+
+
+class GameView(arcade.View):
     def __init__(self):
         super().__init__()
-        texture = arcade.make_soft_square_texture(60, arcade.color.CYAN)
-        self.texture = texture
-        self.center_x = SCREEN_WIDTH // 2
-        self.center_y = SHIP_Y
-        self.height = 30
-
-
-class GameWindow(arcade.Window):
-    def __init__(self):
-        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
-        arcade.set_background_color(arcade.color.DARK_BLUE)
-
-        self.player = None
-        self.player_sprite_list = None
-        self.objects_list = None
-        self.score = 0
-        self.lives = LIVES_START
+        self.player_sprite = None
+        self.player_list = None
+        self.asteroid_list = None
+        self.trash_list = None
+        self.background_list = None
+        self.lives = 3
         self.game_over = False
-        self.level = 1
-
-        self.shield_active = False
-        self.magnet_active = False
-        self.slow_active = False
-        self.slow_timer = 0
-
-        self.spawn_timer = 0
-        self.spawn_interval = 1.0
-
-        self.highscore = self.load_highscore()
+        self.spawn_timer = 0.0
 
     def setup(self):
-        self.player = PlayerShip()
-        self.player_sprite_list = arcade.SpriteList()
-        self.player_sprite_list.append(self.player)
+        self.player_list = arcade.SpriteList()
+        self.player_sprite = Player()
+        self.player_list.append(self.player_sprite)
 
-        self.objects_list = arcade.SpriteList()
-        self.score = 0
-        self.lives = LIVES_START
+        self.asteroid_list = arcade.SpriteList()
+        self.trash_list = arcade.SpriteList()
+        self.background_list = arcade.SpriteList()
+
+        bg = arcade.Sprite("assets/space_background.png")
+        bg.center_x = SCREEN_WIDTH // 2
+        bg.center_y = SCREEN_HEIGHT // 2
+        bg.width = SCREEN_WIDTH
+        bg.height = SCREEN_HEIGHT
+        self.background_list.append(bg)
+
+        self.lives = 3
         self.game_over = False
-        self.level = 1
-        self.shield_active = False
-        self.magnet_active = False
-        self.slow_active = False
-        self.slow_timer = 0
-        self.spawn_interval = 1.0
+        self.spawn_timer = 0.0
 
-    def load_highscore(self):
-        if not os.path.exists(HIGHSCORE_FILE):
-            return 0
-        try:
-            with open(HIGHSCORE_FILE, "r") as f:
-                return int(f.read())
-        except (ValueError, OSError):
-            return 0
+    def on_show_view(self):
+        arcade.set_background_color(arcade.color.BLACK)
 
-    def save_highscore(self):
-        if self.score > self.highscore:
-            try:
-                with open(HIGHSCORE_FILE, "w") as f:
-                    f.write(str(self.score))
-            except OSError:
-                pass
-
-    def spawn_object(self):
-        r = random.random()
-        if r < 0.45:
-            obj = FallingObject(TYPE_TRASH_COMMON)
-        elif r < 0.55:
-            obj = FallingObject(TYPE_TRASH_VALUABLE)
-        elif r < 0.75:
-            obj = FallingObject(TYPE_ASTEROID_SMALL)
-        elif r < 0.90:
-            obj = FallingObject(TYPE_ASTEROID_LARGE)
-        elif r < 0.94 and not self.shield_active:
-            obj = FallingObject(TYPE_SHIELD)
-        elif r < 0.97 and not self.magnet_active:
-            obj = FallingObject(TYPE_MAGNET)
-        elif r < 0.99 and not self.slow_active:
-            obj = FallingObject(TYPE_SLOW)
-        else:
-            obj = FallingObject(TYPE_TRASH_COMMON)
-        self.objects_list.append(obj)
-
-    def on_key_press(self, key, modifiers):
-        if self.game_over and key == arcade.key.R:
-            self.setup()
-            return
-
-        if key in (arcade.key.LEFT, arcade.key.A):
-            self.player.change_x = -SHIP_SPEED
-        elif key in (arcade.key.RIGHT, arcade.key.D):
-            self.player.change_x = SHIP_SPEED
-
-    def on_key_release(self, key, modifiers):
-        if key in (arcade.key.LEFT, arcade.key.A, arcade.key.RIGHT, arcade.key.D):
-            self.player.change_x = 0
-
-    def disable_magnet(self, _):
-        self.magnet_active = False
-
-    def update(self, delta_time):
+    def on_update(self, delta_time):
         if self.game_over:
             return
 
-        self.player.update()
-        self.player.left = max(self.player.left, 0)
-        self.player.right = min(self.player.right, SCREEN_WIDTH)
-
-        if self.slow_active:
-            self.slow_timer -= delta_time
-            if self.slow_timer <= 0:
-                self.slow_active = False
-
-        base_speed = OBJECT_FALL_SPEED_BASE + (self.level - 1) * 0.3
-        speed_mult = 0.5 if self.slow_active else 1.0
-        for obj in self.objects_list:
-            obj.fall_speed = base_speed * speed_mult
-        self.objects_list.update()
+        self.player_sprite.update()
 
         self.spawn_timer += delta_time
-        if self.spawn_timer >= self.spawn_interval:
+        if self.spawn_timer >= ASTEROID_SPAWN_INTERVAL:
             self.spawn_timer = 0
-            self.spawn_object()
-            self.spawn_interval = max(0.3, 1.0 - self.level * 0.05)
+            choice = random.choices(
+                ["large", "small", "trash"],
+                weights=[1, 2, 2]
+            )[0]
 
-        for obj in self.objects_list:
-            if not arcade.check_for_collision(self.player, obj):
-                continue
+            if choice == "trash":
+                self.trash_list.append(Trash())
+            else:
+                self.asteroid_list.append(Asteroid(choice))
 
+        self.asteroid_list.update(delta_time)
+        self.trash_list.update(delta_time)
+
+        for obj in arcade.check_for_collision_with_list(self.player_sprite, self.asteroid_list):
             obj.remove_from_sprite_lists()
+            self.lives -= 1
 
-            if obj.object_type in (TYPE_TRASH_COMMON, TYPE_TRASH_VALUABLE):
-                self.score += obj.points
-            elif obj.object_type == TYPE_ASTEROID_SMALL:
-                if self.shield_active:
-                    self.shield_active = False
-                else:
-                    self.lives -= 1
-            elif obj.object_type == TYPE_ASTEROID_LARGE:
-                if self.shield_active:
-                    self.shield_active = False
-                else:
-                    self.lives -= 2
-            elif obj.object_type == TYPE_SHIELD:
-                self.shield_active = True
-            elif obj.object_type == TYPE_MAGNET:
-                self.magnet_active = True
-                arcade.schedule(self.disable_magnet, 5.0)
-            elif obj.object_type == TYPE_SLOW:
-                self.slow_active = True
-                self.slow_timer = 5.0
+        for obj in arcade.check_for_collision_with_list(self.player_sprite, self.trash_list):
+            obj.remove_from_sprite_lists()
+            self.lives -= 1
 
-            if self.lives <= 0:
-                self.lives = 0
-                self.game_over = True
-                self.save_highscore()
-
-        self.level = (self.score // 1000) + 1
-
-        if self.magnet_active:
-            for obj in self.objects_list:
-                if obj.object_type not in (TYPE_TRASH_COMMON, TYPE_TRASH_VALUABLE):
-                    continue
-                dx = self.player.center_x - obj.center_x
-                dy = self.player.center_y - obj.center_y
-                dist = math.hypot(dx, dy)
-                if dist == 0:
-                    continue
-                force = 2.0
-                obj.center_x += (dx / dist) * force
-                obj.center_y += (dy / dist) * force
+        if self.lives <= 0:
+            self.game_over = True
 
     def on_draw(self):
         self.clear()
+        self.background_list.draw()
+        self.player_list.draw()
+        self.asteroid_list.draw()
+        self.trash_list.draw()
 
-        for _ in range(80):
-            x = random.randint(0, SCREEN_WIDTH)
-            y = random.randint(0, SCREEN_HEIGHT)
-            arcade.draw_point(x, y, arcade.color.WHITE, random.uniform(1, 2))
-
-        self.objects_list.draw()
-        self.player_sprite_list.draw()
-
-        arcade.draw_text(f"Score: {self.score}", 10, SCREEN_HEIGHT - 30, arcade.color.WHITE, 16)
-        arcade.draw_text(f"Lives: {self.lives}", 10, SCREEN_HEIGHT - 60, arcade.color.WHITE, 16)
-        arcade.draw_text(f"Level: {self.level}", 10, SCREEN_HEIGHT - 90, arcade.color.WHITE, 16)
-        arcade.draw_text(f"Highscore: {self.highscore}", SCREEN_WIDTH - 200, SCREEN_HEIGHT - 30,
-                         arcade.color.YELLOW, 14)
-
-        if self.shield_active:
-            arcade.draw_circle_filled(self.player.center_x, self.player.center_y, 40,
-                                      (0, 100, 255, 80))
+        arcade.draw_text(f"Жизни: {self.lives}", 10, SCREEN_HEIGHT - 30,
+                         arcade.color.WHITE, 20)
 
         if self.game_over:
-            arcade.draw_text("GAME OVER", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 30,
-                             arcade.color.RED, 48, anchor_x="center")
-            arcade.draw_text("Press R to restart", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 20,
+            arcade.draw_text("ИГРА ОКОНЧЕНА", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2,
+                             arcade.color.RED, 40, anchor_x="center")
+            arcade.draw_text("Нажмите R для перезапуска", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 50,
                              arcade.color.WHITE, 20, anchor_x="center")
+
+    def on_key_press(self, key, modifiers):
+        if key == arcade.key.A:
+            self.player_sprite.change_x = -PLAYER_SPEED
+        elif key == arcade.key.D:
+            self.player_sprite.change_x = PLAYER_SPEED
+        elif key == arcade.key.R and self.game_over:
+            self.setup()
+
+    def on_key_release(self, key, modifiers):
+        if key in (arcade.key.A, arcade.key.D):
+            self.player_sprite.change_x = 0
 
 
 def main():
-    window = GameWindow()
-    window.setup()
+    window = arcade.Window(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
+    game = GameView()
+    game.setup()
+    window.show_view(game)
     arcade.run()
 
 
