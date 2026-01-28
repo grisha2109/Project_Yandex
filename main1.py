@@ -22,6 +22,10 @@ TYPE_SHIELD = 5
 TYPE_MAGNET = 6
 TYPE_SLOW = 7
 
+GAME_STATE_MENU = 0
+GAME_STATE_PLAYING = 1
+GAME_STATE_GAME_OVER = 2
+
 
 class FallingObject(arcade.Sprite):
     def __init__(self, object_type):
@@ -58,14 +62,23 @@ class FallingObject(arcade.Sprite):
                 self.texture = arcade.make_soft_square_texture(45, arcade.color.BLACK)
             self.damage = 2
         elif object_type == TYPE_SHIELD:
-            self.texture = arcade.load_texture("assets/shield_bonus.png")
-            self.scale = 0.1
+            try:
+                self.texture = arcade.load_texture("assets/shield_bonus.png")
+                self.scale = 0.1
+            except:
+                self.texture = arcade.make_soft_square_texture(25, arcade.color.CYAN)
         elif object_type == TYPE_MAGNET:
-            self.texture = arcade.load_texture("assets/magnet_bonus.png")
-            self.scale = 0.1
+            try:
+                self.texture = arcade.load_texture("assets/magnet_bonus.png")
+                self.scale = 0.1
+            except:
+                self.texture = arcade.make_soft_square_texture(25, arcade.color.YELLOW)
         elif object_type == TYPE_SLOW:
-            self.texture = arcade.load_texture("assets/slow_bonus.png")
-            self.scale = 0.1
+            try:
+                self.texture = arcade.load_texture("assets/slow_bonus.png")
+                self.scale = 0.1
+            except:
+                self.texture = arcade.make_soft_square_texture(25, arcade.color.PURPLE)
         else:
             self.texture = arcade.make_soft_square_texture(20, arcade.color.WHITE)
 
@@ -105,6 +118,8 @@ class GameWindow(arcade.Window):
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
         arcade.set_background_color(arcade.color.DARK_BLUE)
 
+        self.game_state = GAME_STATE_MENU  # Новое состояние игры
+
         self.player = None
         self.player_sprite_list = None
         self.objects_list = None
@@ -135,7 +150,7 @@ class GameWindow(arcade.Window):
             bg.height = SCREEN_HEIGHT
             self.background_list.append(bg)
         except:
-            pass  # Если нет фонового изображения, используем просто цвет
+            pass
 
         self.player = PlayerShip()
         self.player_sprite_list = arcade.SpriteList()
@@ -146,6 +161,7 @@ class GameWindow(arcade.Window):
         self.lives = LIVES_START
         self.game_over = False
         self.level = 1
+        self.level_num = 1
         self.shield_active = False
         self.magnet_active = False
         self.slow_active = False
@@ -167,6 +183,7 @@ class GameWindow(arcade.Window):
             try:
                 with open(HIGHSCORE_FILE, "w") as f:
                     f.write(str(self.score))
+                self.highscore = self.score  # Обновляем локальный highscore
             except OSError:
                 pass
 
@@ -191,16 +208,30 @@ class GameWindow(arcade.Window):
         self.objects_list.append(obj)
 
     def on_key_press(self, key, modifiers):
-        if self.game_over and key == arcade.key.R:
-            self.setup()
+        if self.game_state == GAME_STATE_MENU:
+            if key == arcade.key.ENTER or key == arcade.key.SPACE:
+                self.setup()
+                self.game_state = GAME_STATE_PLAYING
             return
 
+        if self.game_state == GAME_STATE_GAME_OVER:
+            if key == arcade.key.R:
+                self.setup()
+                self.game_state = GAME_STATE_PLAYING
+            elif key == arcade.key.M or key == arcade.key.ESCAPE:
+                self.game_state = GAME_STATE_MENU
+            return
+
+        # Игровые клавиши
         if key in (arcade.key.LEFT, arcade.key.A):
             self.player.change_x = -PLAYER_SPEED
         elif key in (arcade.key.RIGHT, arcade.key.D):
             self.player.change_x = PLAYER_SPEED
 
     def on_key_release(self, key, modifiers):
+        if self.game_state != GAME_STATE_PLAYING:
+            return
+
         if key in (arcade.key.LEFT, arcade.key.A, arcade.key.RIGHT, arcade.key.D):
             self.player.change_x = 0
 
@@ -208,7 +239,7 @@ class GameWindow(arcade.Window):
         self.magnet_active = False
 
     def on_update(self, delta_time):
-        if self.game_over:
+        if self.game_state != GAME_STATE_PLAYING:
             return
 
         self.player.update()
@@ -218,34 +249,27 @@ class GameWindow(arcade.Window):
             self.slow_timer -= delta_time
             if self.slow_timer <= 0:
                 self.slow_active = False
+
+        # Логика уровней
         if self.score > 100:
-            self.level += 1
             self.level_num = 2
         if self.score > 400:
-            self.level += 2
             self.level_num = 3
         if self.score > 1000:
-            self.level += 3
             self.level_num = 4
         if self.score > 2000:
-            self.level += 4
             self.level_num = 5
         if self.score > 3300:
-            self.level += 3
             self.level_num = 7
         if self.score > 4000:
-            self.level += 2
             self.level_num = 8
         if self.score > 5000:
-            self.level += 1
             self.level_num = 9
         if self.score > 10000:
-            self.level += 2
             self.level_num = "MAX LEVEL!"
 
         base_speed = OBJECT_FALL_SPEED_BASE + (self.level - 1) * 0.3
         speed_mult = 0.5 if self.slow_active else 1.0
-
 
         # Устанавливаем скорость падения объектов
         for obj in self.objects_list:
@@ -284,8 +308,9 @@ class GameWindow(arcade.Window):
 
             if self.lives <= 0:
                 self.lives = 0
-                self.game_over = True
+                self.game_state = GAME_STATE_GAME_OVER
                 self.save_highscore()
+                return
 
         self.level = (self.score // 1000) + 1
 
@@ -315,26 +340,52 @@ class GameWindow(arcade.Window):
                 y = random.randint(0, SCREEN_HEIGHT)
                 arcade.draw_point(x, y, arcade.color.WHITE, random.uniform(1, 2))
 
-        self.objects_list.draw()
-        self.player_sprite_list.draw()
+        if self.game_state == GAME_STATE_MENU:
+            self.draw_menu()
+        elif self.game_state == GAME_STATE_PLAYING:
+            self.objects_list.draw()
+            self.player_sprite_list.draw()
+            self.draw_hud()
+            if self.shield_active:
+                arcade.draw_circle_filled(self.player.center_x, self.player.center_y, 40,
+                                          (0, 100, 255, 80))
+        elif self.game_state == GAME_STATE_GAME_OVER:
+            self.objects_list.draw()
+            self.player_sprite_list.draw()
+            self.draw_hud()
+            self.draw_game_over()
 
+    def draw_menu(self):
+        """Рисует главное меню"""
+        arcade.draw_text("SPACESHIP ADVENTURES", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 80,
+                         arcade.color.CYAN, 48, anchor_x="center", anchor_y="center")
+        arcade.draw_text("by Григорий Ф. и Артем М.", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 20,
+                         arcade.color.WHITE, 20, anchor_x="center", anchor_y="center")
+        arcade.draw_text(f"Лучший результат: {self.highscore}", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 40,
+                         arcade.color.YELLOW, 24, anchor_x="center", anchor_y="center")
+        arcade.draw_text("Нажмите ENTER или ПРОБЕЛ чтобы начать", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 100,
+                         arcade.color.WHITE, 20, anchor_x="center", anchor_y="center")
+        arcade.draw_text("Управление: A/D или стрелки ←→", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 140,
+                         arcade.color.LIME_GREEN, 16, anchor_x="center", anchor_y="center")
+
+    def draw_hud(self):
+        """Рисует HUD во время игры"""
         arcade.draw_text(f"Score: {self.score}", 10, SCREEN_HEIGHT - 30, arcade.color.WHITE, 16)
         arcade.draw_text(f"Lives: {self.lives}", 10, SCREEN_HEIGHT - 60, arcade.color.WHITE, 16)
         arcade.draw_text(f"Level: {self.level_num}", 10, SCREEN_HEIGHT - 90, arcade.color.WHITE, 16)
         arcade.draw_text(f"Highscore: {self.highscore}", SCREEN_WIDTH - 200, SCREEN_HEIGHT - 30,
                          arcade.color.YELLOW, 14)
 
-        if self.shield_active:
-            arcade.draw_circle_filled(self.player.center_x, self.player.center_y, 40,
-                                      (0, 100, 255, 80))
-
-        if self.game_over:
-            arcade.draw_text("GAME OVER", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 30,
-                             arcade.color.RED, 48, anchor_x="center")
-            arcade.draw_text("Press R to restart", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 20,
-                             arcade.color.WHITE, 20, anchor_x="center")
-            arcade.draw_text("ИГРА ОКОНЧЕНА", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 80,
-                             arcade.color.RED, 40, anchor_x="center")
+    def draw_game_over(self):
+        """Рисует экран окончания игры"""
+        arcade.draw_text("GAME OVER", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 30,
+                         arcade.color.RED, 48, anchor_x="center")
+        arcade.draw_text("Press R to restart", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 20,
+                         arcade.color.WHITE, 20, anchor_x="center")
+        arcade.draw_text("Press M or ESC to menu", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 60,
+                         arcade.color.WHITE, 20, anchor_x="center")
+        arcade.draw_text("ИГРА ОКОНЧЕНА", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 80,
+                         arcade.color.RED, 40, anchor_x="center")
 
 
 def main():
