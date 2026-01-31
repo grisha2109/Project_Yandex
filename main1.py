@@ -32,7 +32,6 @@ class FallingObject(arcade.Sprite):
         super().__init__()
         self.object_type = object_type
 
-        # Используем изображения если они существуют, иначе создаем квадраты
         if object_type == TYPE_TRASH_COMMON:
             try:
                 self.texture = arcade.load_texture("assets/trash_common.png")
@@ -118,7 +117,7 @@ class GameWindow(arcade.Window):
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
         arcade.set_background_color(arcade.color.DARK_BLUE)
 
-        self.game_state = GAME_STATE_MENU  # Новое состояние игры
+        self.game_state = GAME_STATE_MENU
 
         self.player = None
         self.player_sprite_list = None
@@ -139,8 +138,22 @@ class GameWindow(arcade.Window):
 
         self.highscore = self.load_highscore()
 
+        # Аудио
+        self.menu_music = None
+        self.game_music = None
+        self.hit_sound = None
+        self.collect_sound = None
+        self.music_volume = 0.4
+        self.sfx_volume = 0.6
+
+        # Players для управления музыкой
+        self.menu_player = None
+        self.game_player = None
+
     def setup(self):
-        # Создаем фон
+        """Сброс игры и возврат в меню с музыкой меню"""
+        self.stop_game_music()
+
         self.background_list = arcade.SpriteList()
         try:
             bg = arcade.Sprite("assets/space_background.png")
@@ -169,6 +182,56 @@ class GameWindow(arcade.Window):
         self.spawn_interval = 1.0
         self.spawn_timer = 0
 
+        self.load_sounds()
+        # В setup всегда запускаем музыку меню
+        self.play_menu_music()
+
+    def stop_game_music(self):
+        """Останавливает игровую музыку"""
+        if self.game_player:
+            arcade.stop_sound(self.game_player)
+            self.game_player = None
+
+    def stop_menu_music(self):
+        """Останавливает музыку меню"""
+        if self.menu_player:
+            arcade.stop_sound(self.menu_player)
+            self.menu_player = None
+
+    def load_sounds(self):
+        """Загружает все звуковые файлы безопасно"""
+        try:
+            self.menu_music = arcade.load_sound("assets/menu_music.ogg", streaming=True)
+        except:
+            self.menu_music = None
+
+        try:
+            self.game_music = arcade.load_sound("assets/game_music.ogg", streaming=True)
+        except:
+            self.game_music = None
+
+        try:
+            self.hit_sound = arcade.load_sound("assets/hit.ogg", streaming=False)
+        except:
+            self.hit_sound = None
+
+        try:
+            self.collect_sound = arcade.load_sound("assets/collect.ogg", streaming=False)
+        except:
+            self.collect_sound = None
+
+    def play_menu_music(self):
+        """Запускает музыку меню"""
+        self.stop_game_music()  # Останавливаем игровую музыку если играет
+        if self.menu_music:
+            self.menu_player = arcade.play_sound(self.menu_music, self.music_volume, 0.0, True)
+
+    def play_game_music(self):
+        """Запускает игровую музыку"""
+        self.stop_menu_music()  # Останавливаем меню музыку
+        if self.game_music:
+            self.game_player = arcade.play_sound(self.game_music, self.music_volume, 0.0, True)
+
     def load_highscore(self):
         if not os.path.exists(HIGHSCORE_FILE):
             return 0
@@ -183,7 +246,7 @@ class GameWindow(arcade.Window):
             try:
                 with open(HIGHSCORE_FILE, "w") as f:
                     f.write(str(self.score))
-                self.highscore = self.score  # Обновляем локальный highscore
+                self.highscore = self.score
             except OSError:
                 pass
 
@@ -210,19 +273,23 @@ class GameWindow(arcade.Window):
     def on_key_press(self, key, modifiers):
         if self.game_state == GAME_STATE_MENU:
             if key == arcade.key.ENTER or key == arcade.key.SPACE:
-                self.setup()
+                # Переход из меню в игру - включаем игровую музыку
+                self.play_game_music()
                 self.game_state = GAME_STATE_PLAYING
             return
 
         if self.game_state == GAME_STATE_GAME_OVER:
             if key == arcade.key.R:
+                # Рестарт игры
                 self.setup()
                 self.game_state = GAME_STATE_PLAYING
+                self.play_game_music()
             elif key == arcade.key.M or key == arcade.key.ESCAPE:
+                # Возврат в меню
                 self.game_state = GAME_STATE_MENU
+                self.play_menu_music()
             return
 
-        # Игровые клавиши
         if key in (arcade.key.LEFT, arcade.key.A):
             self.player.change_x = -PLAYER_SPEED
         elif key in (arcade.key.RIGHT, arcade.key.D):
@@ -237,6 +304,16 @@ class GameWindow(arcade.Window):
 
     def disable_magnet(self, _):
         self.magnet_active = False
+
+    def play_collect_sound(self):
+        """Звук сбора мусора"""
+        if self.collect_sound:
+            arcade.play_sound(self.collect_sound, self.sfx_volume)
+
+    def play_hit_sound(self):
+        """Звук попадания астероида"""
+        if self.hit_sound:
+            arcade.play_sound(self.hit_sound, self.sfx_volume)
 
     def on_update(self, delta_time):
         if self.game_state != GAME_STATE_PLAYING:
@@ -271,7 +348,6 @@ class GameWindow(arcade.Window):
         base_speed = OBJECT_FALL_SPEED_BASE + (self.level - 1) * 0.3
         speed_mult = 0.5 if self.slow_active else 1.0
 
-        # Устанавливаем скорость падения объектов
         for obj in self.objects_list:
             obj.change_y = -base_speed * speed_mult
 
@@ -287,22 +363,28 @@ class GameWindow(arcade.Window):
 
             if obj.object_type in (TYPE_TRASH_COMMON, TYPE_TRASH_VALUABLE):
                 self.score += obj.points
+                self.play_collect_sound()
             elif obj.object_type == TYPE_ASTEROID_SMALL:
+                self.play_hit_sound()
                 if self.shield_active:
                     self.shield_active = False
                 else:
                     self.lives -= 1
             elif obj.object_type == TYPE_ASTEROID_LARGE:
+                self.play_hit_sound()
                 if self.shield_active:
                     self.shield_active = False
                 else:
                     self.lives -= 2
             elif obj.object_type == TYPE_SHIELD:
+                self.play_collect_sound()
                 self.shield_active = True
             elif obj.object_type == TYPE_MAGNET:
+                self.play_collect_sound()
                 self.magnet_active = True
                 arcade.schedule(self.disable_magnet, 5.0)
             elif obj.object_type == TYPE_SLOW:
+                self.play_collect_sound()
                 self.slow_active = True
                 self.slow_timer = 5.0
 
@@ -330,11 +412,9 @@ class GameWindow(arcade.Window):
     def on_draw(self):
         self.clear()
 
-        # Рисуем фон или звезды
         if self.background_list:
             self.background_list.draw()
         else:
-            # Рисуем звезды если нет фона
             for _ in range(80):
                 x = random.randint(0, SCREEN_WIDTH)
                 y = random.randint(0, SCREEN_HEIGHT)
@@ -356,7 +436,6 @@ class GameWindow(arcade.Window):
             self.draw_game_over()
 
     def draw_menu(self):
-        """Рисует главное меню"""
         arcade.draw_text("SPACESHIP ADVENTURES", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 80,
                          arcade.color.CYAN, 48, anchor_x="center", anchor_y="center")
         arcade.draw_text("by Григорий Ф. и Артем М.", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 20,
@@ -369,7 +448,6 @@ class GameWindow(arcade.Window):
                          arcade.color.LIME_GREEN, 16, anchor_x="center", anchor_y="center")
 
     def draw_hud(self):
-        """Рисует HUD во время игры"""
         arcade.draw_text(f"Score: {self.score}", 10, SCREEN_HEIGHT - 30, arcade.color.WHITE, 16)
         arcade.draw_text(f"Lives: {self.lives}", 10, SCREEN_HEIGHT - 60, arcade.color.WHITE, 16)
         arcade.draw_text(f"Level: {self.level_num}", 10, SCREEN_HEIGHT - 90, arcade.color.WHITE, 16)
@@ -377,7 +455,6 @@ class GameWindow(arcade.Window):
                          arcade.color.YELLOW, 14)
 
     def draw_game_over(self):
-        """Рисует экран окончания игры"""
         arcade.draw_text("GAME OVER", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 + 30,
                          arcade.color.RED, 48, anchor_x="center")
         arcade.draw_text("Press R to restart", SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2 - 20,
