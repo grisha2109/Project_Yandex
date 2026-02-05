@@ -2,6 +2,10 @@ import arcade
 import random
 import math
 import os
+import sys
+
+if getattr(sys, 'frozen', False):
+    os.chdir(sys._MEIPASS)
 
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
